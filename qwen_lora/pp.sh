@@ -1,0 +1,23 @@
+#! /bin/bash
+python pp_consumer.py \
+    --output_dir "/storage/v-jinpewang/az_workspace/rico_model/overfit/result" \
+    --logging_dir "./logger" \
+    --pretrained_model "/storage/v-jinpewang/az_workspace/rico_model/Qwen-Image-Edit-2509" \
+    --rank 16 \
+    --adam_beta1 0.9 \
+    --adam_beta2 0.999 \
+    --adam_weight_decay 0.01 \
+    --adam_epsilon 1e-8 \
+    --epochs 200 \
+    --train_batch_size 1 \
+    --gradient_accumulation_steps 1 \
+    --max_train_steps 6000 \
+    --lr_warmup_steps 10 \
+    --lr_scheduler constant \
+    --learning_rate 2e-4 \
+    --num_workers 1 \
+    --max_grad_norm 1.0 \
+    --checkpointing_steps 200 \
+    --txt_cache_dir "/storage/v-jinpewang/az_workspace/rico_model/overfit/cache/text_embs/" \
+    --img_cache_dir "/storage/v-jinpewang/az_workspace/rico_model/overfit/cache/img_embs/" \
+    --control_img_cache_dir "/storage/v-jinpewang/az_workspace/rico_model/overfit/cache/img_embs_control/"
