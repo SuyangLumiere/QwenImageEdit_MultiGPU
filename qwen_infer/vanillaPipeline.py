@@ -34,6 +34,8 @@ class VanillaPipeline(QwenImageEditPlusPipeline):
         self,
         image: Optional[PipelineImageInput] = None,
         prompt: Union[str, List[str]] = None,
+        negative_prompt: Union[str, List[str]] = None,
+        true_cfg_scale: float = 4.0,
         target_area: Optional[int] = None,
         num_inference_steps: int = 50,
         sigmas: Optional[List[float]] = None,
@@ -61,8 +63,16 @@ class VanillaPipeline(QwenImageEditPlusPipeline):
                     prompt=[prompt],
                     device=device,
                     num_images_per_prompt=1,
-                    max_sequence_length=max_sequence_length,
+                    max_sequence_length=max_sequence_length, # modified here to save time
         )
+        if negative_prompt:
+            negative_prompt_embeds, negative_prompt_embeds_mask = self.encode_prompt(
+                image=[contorl_image],
+                prompt=[negative_prompt],
+                device=device,
+                num_images_per_prompt=1,
+                max_sequence_length=max_sequence_length,
+            )
 
         # 2. Prepare latent variables
         contorl_image = self.image_processor.preprocess(contorl_image, calculated_height, calculated_width).unsqueeze(2)
@@ -106,8 +116,9 @@ class VanillaPipeline(QwenImageEditPlusPipeline):
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
 
-                # move latents to transformer device
+                # 将latents移到transformer设备
                 latent_model_input = latents.to(transformer_device)
+                #img_shapes = [(1, latents.shape[3]// 2, latents.shape[4]//2), (1, image_latents.shape[3]//2, image_latents.shape[4]//2)]
                 img_shapes = [
             [
                 (1, calculated_height // self.vae_scale_factor // 2, calculated_width // self.vae_scale_factor // 2),
@@ -135,6 +146,25 @@ class VanillaPipeline(QwenImageEditPlusPipeline):
                     )[0]
                     noise_pred = noise_pred[:, : latents.size(1)]
                     noise_pred = noise_pred.to(device)
+                if negative_prompt:
+                    with self.transformer.cache_context("uncond"):
+                        neg_noise_pred = self.transformer(
+                            hidden_states=latent_model_input,
+                            timestep=timestep / 1000,
+                            guidance=None,
+                            encoder_hidden_states_mask=negative_prompt_embeds_mask,
+                            encoder_hidden_states=negative_prompt_embeds,
+                            img_shapes=img_shapes,
+                            txt_seq_lens=negative_prompt_embeds_mask.sum(dim=1).tolist(),
+                            return_dict=False,
+                        )[0]
+                    neg_noise_pred = neg_noise_pred[:, : latents.size(1)]
+                    neg_noise_pred = neg_noise_pred.to(device)
+                    comb_pred = neg_noise_pred + true_cfg_scale * (noise_pred - neg_noise_pred)
+
+                    cond_norm = torch.norm(noise_pred, dim=-1, keepdim=True)
+                    noise_norm = torch.norm(comb_pred, dim=-1, keepdim=True)
+                    noise_pred = comb_pred * (cond_norm / noise_norm)
 
 
                 # compute the previous noisy sample x_t -> x_t-1

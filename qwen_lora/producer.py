@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from tqdm.auto import tqdm
 
-from accelerate import Accelerator,DeepSpeedPlugin
+
 from diffusers import AutoencoderKLQwenImage
 from PIL import Image
 import numpy as np
@@ -25,6 +25,14 @@ def calculate_dimensions(target_area, ratio):
 
     return width, height
 
+def get_prompt():
+    instruction = "按照文字指令进行图片编辑"
+    """
+    could be customized by yourself
+    """
+
+    return instruction
+
 
 # > main -----------------------------------------------------------------------------
 
@@ -32,25 +40,18 @@ def main():
     # > config
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pretrained_model", type=str, default="/mnt/output/v-jinpewang/az_workspace/rico_model/qwen_image_edit", help="HuggingFace repo id or local path for Qwen-Image-Edit")
-    parser.add_argument("--img_dir", default="/storage/v-jinpewang/lab_folder/junchao/data/image_eidt_dataset/processed_data_Accgen/with_textbox/output", help="Directory containing edited images (e.g., *_edit.png)")
-    parser.add_argument("--control_dir",default="/storage/v-jinpewang/lab_folder/junchao/data/image_eidt_dataset/processed_data_Accgen/with_textbox/input", help="Directory containing control images (e.g., *_textbox.png)")
-    parser.add_argument("--empty_img",type=str, default="empty.png", help="Directory resolve empty input")
+    parser.add_argument("--pretrained_model", required=True, help="HuggingFace repo id or local path for Qwen-Image-Edit")
+    parser.add_argument("--img_dir", required=True, help="Directory containing edited images (e.g., *_edit.png)")
+    parser.add_argument("--control_dir", required=True, help="Directory containing control images (e.g., *_textbox.png)")
     parser.add_argument("--target_area", type=int, default=512*512, help="Approximate target area (H*W) for 32-aligned resize")
-    parser.add_argument("--output_dir", default="/storage/v-jinpewang/az_workspace/rico_model/cache", help="Root output directory; caches will be saved under output-dir/cache/")
+    parser.add_argument("--output_dir", required=True, help="Root output directory; caches will be saved under output-dir/cache/")
     parser.add_argument("--prompt_with_image", action="store_true", help="load VLM to rephrase prompt but need to be set to True")
     args = parser.parse_args()
 
-    # pack directories into a nested namespace for backward-compatible field access
-    # args.data_config = types.SimpleNamespace(
-    #     img_dir=args.img_dir,
-    #     control_dir=args.control_dir,
-    # )
     weight_dtype = torch.float16
-    
-    deepspeed = DeepSpeedPlugin(zero_stage=3, gradient_clipping=1.0)
-    accelerator = Accelerator(deepspeed_plugin=deepspeed)
+    device = torch.device("cuda:1")
 
+    
     # > input----------------------------------------------------------------------------
     img_dir = Path(args.img_dir)
     ctrl_dir = Path(args.control_dir) if args.control_dir else None
@@ -61,12 +62,10 @@ def main():
     img_cache_dir = cache_dir /  "img_embs"
     ctrl_cache_dir = cache_dir /  "img_embs_control"
     
-    if accelerator.is_main_process:
-        cache_dir.mkdir(exist_ok=True)
-        txt_cache_dir.mkdir(exist_ok=True)
-        img_cache_dir.mkdir(exist_ok=True)
-        ctrl_cache_dir.mkdir(exist_ok=True)
-    accelerator.wait_for_everyone()
+    cache_dir.mkdir(exist_ok=True)
+    txt_cache_dir.mkdir(exist_ok=True)
+    img_cache_dir.mkdir(exist_ok=True)
+    ctrl_cache_dir.mkdir(exist_ok=True)
 
     # > pre-process -----------------------------------------------------------------------------
     
@@ -75,18 +74,18 @@ def main():
     text_encoding_pipeline = QwenImageEditPipeline.from_pretrained(
         args.pretrained_model, transformer=None, vae=None, torch_dtype=weight_dtype
     )
-    text_encoding_pipeline.to(accelerator.device)
+    text_encoding_pipeline.to(device)
 
     # > text encoding
     with torch.inference_mode():
-            
+
         if args.prompt_with_image:
             for img_name in tqdm(ctrl_dir.rglob("*.png")):
                 img = Image.open(img_name).convert('RGB')
                 calculated_width, calculated_height = calculate_dimensions(args.target_area, img.size[0] / img.size[1])
                 prompt_image = text_encoding_pipeline.image_processor.resize(img, calculated_height, calculated_width)
 
-                prompt = "Please return the correctly edited image."
+                prompt = get_prompt()
                 prompt_embeds, prompt_embeds_mask = text_encoding_pipeline.encode_prompt(
                     image=prompt_image,
                     prompt=[prompt],
@@ -97,21 +96,6 @@ def main():
                 stem = img_name.stem
                 temp = txt_cache_dir / f"{stem}.pt"
                 torch.save({'prompt_embeds': prompt_embeds[0].to('cpu'), 'prompt_embeds_mask': prompt_embeds_mask[0].to('cpu')}, temp)
-        else:
-            prompt = "Please return the correctly edited image."
-            try:
-                img = Image.open(args.empty_img).convert('RGB')
-            except Exception as e:
-                print("[Error]:{e}, empty_img path invalid.")
-
-            prompt_embeds, prompt_embeds_mask = text_encoding_pipeline.encode_prompt(
-                image=Image.open(args.empty_img).convert('RGB'),
-                prompt=[prompt],
-                device=text_encoding_pipeline.device,
-                num_images_per_prompt=1,
-                max_sequence_length=1024,
-            )
-            torch.save({'prompt_embeds': prompt_embeds[0].to('cpu'), 'prompt_embeds_mask': prompt_embeds_mask[0].to('cpu')}, txt_cache_dir / 'empty.pt')
 
     
     # > image_encoding_pipeline VAE
@@ -126,23 +110,21 @@ def main():
         args.pretrained_model,
         subfolder="vae",
     )
-    vae.to(accelerator.device, dtype=weight_dtype)
+    vae.to(device, dtype=weight_dtype)
 
     # > image encoding
     with torch.inference_mode():
         for img_name in tqdm(img_dir.rglob("*.png")):
             img = Image.open(img_name).convert('RGB')
             calculated_width, calculated_height = calculate_dimensions(args.target_area, img.size[0] / img.size[1])
-            # img = text_encoding_pipeline.image_processor.resize(img, calculated_height, calculated_width)
             img = resizer.resize(img, calculated_height, calculated_width)
 
             img = torch.from_numpy((np.array(img) / 127.5) - 1)
             img = img.permute(2, 0, 1).unsqueeze(0)
             pixel_values = img.unsqueeze(2)
-            pixel_values = pixel_values.to(dtype=weight_dtype,device=accelerator.device)
+            pixel_values = pixel_values.to(dtype=weight_dtype,device=device)
 
             pixel_latents = vae.encode(pixel_values).latent_dist.sample().to('cpu')[0]
-            # Save to disk (if enabled) or keep in-memory for faster access.
             stem = img_name.stem
             temp = img_cache_dir / f"{stem}.pt"
             torch.save(pixel_latents, temp)
@@ -159,10 +141,9 @@ def main():
                 img = torch.from_numpy((np.array(img) / 127.5) - 1)
                 img = img.permute(2, 0, 1).unsqueeze(0)
                 pixel_values = img.unsqueeze(2)
-                pixel_values = pixel_values.to(dtype=weight_dtype,device=accelerator.device)
+                pixel_values = pixel_values.to(dtype=weight_dtype,device=device)
 
                 pixel_latents = vae.encode(pixel_values).latent_dist.sample().to('cpu')[0]
-                # Save to disk (if enabled) or keep in-memory for faster access.
                 stem = img_name.stem
                 temp = ctrl_cache_dir / f"{stem}.pt"
                 torch.save(pixel_latents, temp)

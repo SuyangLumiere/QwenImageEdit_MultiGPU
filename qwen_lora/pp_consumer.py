@@ -1,5 +1,4 @@
 import argparse
-import logging
 import os
 import wandb
 import json
@@ -7,24 +6,17 @@ import json
 import torch
 from tqdm.auto import tqdm
 
-from accelerate import dispatch_model
 from accelerate.logging import get_logger
 from diffusers import FlowMatchEulerDiscreteScheduler
-from diffusers import (
-    QwenImagePipeline,
-    QwenImageTransformer2DModel,
-)
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import (
     compute_density_for_timestep_sampling,
     compute_loss_weighting_for_sd3,
 )
-from diffusers.utils import convert_state_dict_to_diffusers
-from diffusers.utils.torch_utils import is_compiled_module
 from preprocess_dataset import loader, path_done_well
-from peft import LoraConfig
-from peft.utils import get_peft_model_state_dict
-from diffusers import QwenImageEditPipeline
+from peft import LoraConfig, get_peft_model
+from diffusers import QwenImageEditPlusPipeline,QwenImageTransformer2DModel
+from wrapped_tools import MultiGPUTransformer
 
 logger = get_logger(__name__, log_level="INFO")
 
@@ -86,7 +78,7 @@ def parse_args():
     # Checkpointing
     parser.add_argument("--checkpointing_steps", type=int, default=250)
 
-    # Caches (预编码数据所在位置)
+    # Caches
     parser.add_argument("--txt_cache_dir", type=str, default="/storage/v-jinpewang/az_workspace/rico_model/text_embs/")
     parser.add_argument("--img_cache_dir", type=str, default="/storage/v-jinpewang/az_workspace/rico_model/img_embs/")
     parser.add_argument("--control_img_cache_dir", type=str, default="/storage/v-jinpewang/az_workspace/rico_model/img_embs_control/")
@@ -111,45 +103,6 @@ def lora_processors(model):
 
     return processors
 
-# wrapped flux transformer
-class MultiGPUTransformer():
-    """multi GPU 包装器，通过 device_map 自动分配（pipeline/model parallel by block）"""
-    def __init__(self, transformer):
-        self.transformer = transformer
-        self.num_gpus = max(torch.cuda.device_count(), 1)
-        self.total_blocks = len(transformer.transformer_blocks)
-        # 均匀切块
-        self.split_points = [i*(self.total_blocks // self.num_gpus) for i in range(1, self.num_gpus)]
-
-    @property
-    def device_map(self):
-        device_map = {}
-        res = 0
-        # 非 transformer_blocks 子模块放到 cuda:0
-        for name, _ in self.transformer.named_children():
-            if name != "transformer_blocks":
-                device_map[name] = "cuda:0"
-        # 按块切分 transformer_blocks：从 cuda:1 开始依次映射
-        for item, splt in enumerate(self.split_points):
-            temp = {f"transformer_blocks.{i}": f"cuda:{item+1}" for i in range(res, splt)}
-            res = splt
-            device_map.update(temp)
-
-        temp = {f"transformer_blocks.{i}": f"cuda:{self.num_gpus-1}" for i in range(res, self.total_blocks)}
-        device_map.update(temp)
-
-        return device_map
-
-    def auto_split(self):
-        # accelerate dispatch
-        try:
-            model = dispatch_model(self.transformer, device_map=self.device_map)
-            print("Successfully applied device_map using accelerate")
-        except Exception as e:
-            print(f"Error with accelerate dispatch: {e}")
-            model = self.transformer
-            pass
-        return model
 
 # > main -----------------------------------------------------------------------------
 
@@ -176,7 +129,6 @@ def main():
     with open(vae_cfg_path, "r") as f:
         vae = json.load(f)
 
-    # > load flux transformer (不加载任何文本/图像编码器，纯 transformer)
     flux_transformer = QwenImageTransformer2DModel.from_pretrained(
         args.pretrained_model,
         subfolder="transformer",
@@ -186,19 +138,24 @@ def main():
     # > LoRA config —— 先插 LoRA 再分片
     lora_config = LoraConfig(
         r=args.rank,
-        lora_alpha=args.rank,
-        init_lora_weights="gaussian",
-        target_modules=["to_k", "to_q", "to_v", "to_out.0"],
+        lora_alpha=2*args.rank,
+        init_lora_weights='loftq',
+        target_modules=[
+        "to_k", "to_q", "to_v", "to_out.0", 
+        "add_q_proj", "add_k_proj", "add_v_proj", "to_add_out",],
     )
-    flux_transformer.add_adapter(lora_config)
+
+
+    # block 级映射为“流水线/模型并行”
+    flux_transformer = MultiGPUTransformer(flux_transformer).auto_split()
+    first_device = next(flux_transformer.parameters()).device
+    flux_transformer = get_peft_model(flux_transformer, lora_config)
 
     # Freeze base, train only LoRA
     for n, p in flux_transformer.named_parameters():
         p.requires_grad = ("lora" in n)
 
-    # block 级映射为“流水线/模型并行”
-    flux_transformer = MultiGPUTransformer(flux_transformer).auto_split()
-    first_device = next(flux_transformer.parameters()).device
+    
 
     # 统计可训练参数
     trainable_params = [p for p in flux_transformer.parameters() if p.requires_grad]
@@ -257,6 +214,20 @@ def main():
         initial=initial_global_step,
         desc="Steps",
     )
+    # > wandb init -----------------------------------------------------------------
+    wandb.init(
+        project="qwen_lora",      # 自定义项目名
+        name=f"ppRun-rank{args.rank}",  # 可选：给这次实验命名
+        config={
+            "learning_rate": args.learning_rate,
+            "epochs": args.epochs,
+            "batch_size": args.train_batch_size,
+            "grad_accum_steps": args.gradient_accumulation_steps,
+            "dtype": str(args.weight_dtype),
+            "rank": args.rank,
+            "num_gpus": torch.cuda.device_count(),
+        }
+    )
 
     # > training loop -----------------------------------------------------------------------------
 
@@ -312,14 +283,14 @@ def main():
             noisy_model_input = (1.0 - sigmas) * pixel_latents + sigmas * noise
 
             # pack
-            packed_noisy_model_input = QwenImageEditPipeline._pack_latents(
+            packed_noisy_model_input = QwenImageEditPlusPipeline._pack_latents(
                 noisy_model_input,
                 bsz,
                 noisy_model_input.shape[2],
                 noisy_model_input.shape[3],
                 noisy_model_input.shape[4],
             )
-            packed_control_img = QwenImageEditPipeline._pack_latents(
+            packed_control_img = QwenImageEditPlusPipeline._pack_latents(
                 control_img,
                 bsz,
                 control_img.shape[2],
@@ -331,9 +302,10 @@ def main():
                             (1, control_img.shape[3] // 2, control_img.shape[4] // 2)]] * bsz
 
             packed_noisy_model_input_concated = torch.cat([packed_noisy_model_input, packed_control_img], dim=1)
+            
 
             # forward
-            model_pred = flux_transformer(
+            model_pred= flux_transformer(
                 hidden_states=packed_noisy_model_input_concated,
                 timestep=timesteps / 1000,
                 guidance=None,
@@ -346,7 +318,7 @@ def main():
             model_pred = model_pred[:, : packed_noisy_model_input.size(1)]
 
             # unpack
-            model_pred = QwenImageEditPipeline._unpack_latents(
+            model_pred = QwenImageEditPlusPipeline._unpack_latents(
                 model_pred,
                 height=noisy_model_input.shape[3] * vae_scale_factor,
                 width=noisy_model_input.shape[4] * vae_scale_factor,
@@ -383,6 +355,13 @@ def main():
                 progress_bar.update(1)
                 global_step += 1
 
+                wandb.log({
+                "global_step": global_step,
+                "train_loss": loss.item(),
+                "lr": lr_scheduler.get_last_lr()[0],
+                "epoch": epoch,
+                })
+
                 if (global_step % args.checkpointing_steps) == 0:
                     save_path = args.output_dir / f"checkpoint-{global_step}"
                     try:
@@ -394,14 +373,7 @@ def main():
                     def _unwrap(m):
                         return m._orig_mod if hasattr(m, "_orig_mod") else m
                     unwrapped_flux_transformer = _unwrap(flux_transformer)
-                    flux_transformer_lora_state_dict = convert_state_dict_to_diffusers(
-                        get_peft_model_state_dict(unwrapped_flux_transformer)
-                    )
-                    QwenImagePipeline.save_lora_weights(
-                        save_path,
-                        flux_transformer_lora_state_dict,
-                        safe_serialization=True,
-                    )
+                    unwrapped_flux_transformer.save_pretrained(save_path,safe_serialization=True)
 
                 logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
                 progress_bar.set_postfix(**logs)
