@@ -42,6 +42,7 @@ After produce has finished:
 bash consume.sh
 ```
 This launches the LoRA trainer based on the new architecture.
+
 ---
 ## 🚀 Inference
 You now have **two** inference choices:
