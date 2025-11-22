@@ -1,4 +1,7 @@
-# QwenImageEdit_MultiGPU
+# <img src="img/logo.png" width="180" align="left" />QwenImageEdit_MultiGPU
+
+
+
 A lightweight, clean implementation of **Qwen-Image-Edit** supporting inference + LoRA fine‑tuning on **multi‑GPU (8×V100)** setups.
 
 ---
@@ -6,6 +9,7 @@ A lightweight, clean implementation of **Qwen-Image-Edit** supporting inference 
 ## 📦 Installation
 
 **Requirements:**
+
 - Python 3.10
 
 1. Install required packages:
@@ -28,6 +32,9 @@ A lightweight, clean implementation of **Qwen-Image-Edit** supporting inference 
 ## 🏋️ Training Workflow
 
 Training now follows a **two‑stage pipeline**:
+
+<img src="img/2stage.png" width="1000" />
+
 ### 1. Precompute embeddings  
 Run the producer script:
 ```bash
@@ -45,7 +52,10 @@ This launches the LoRA trainer based on the new architecture.
 
 ---
 ## 🚀 Inference
+<img src="img/demo.png" width="1000" />
+
 You now have **two** inference choices:
+
 ### Option A — Rewritten Fast Pipeline (recommended)
 Located in `qwen_infer/vanillaPipeline.py`.
 
@@ -65,7 +75,7 @@ python quick_infer.py
 If you still need the “official” behavior:
 
 ```bash
-python infer.py --official
+python infer.py
 ```
 
 **Note:**  
@@ -100,6 +110,7 @@ qwen_image/
 │   └── wrapped_tools.py
 │
 └── qwen_infer/
+    ├── quick_infer.py
     ├── infer.py
     ├── vanillaPipeline.py
     └── wrapped_tools.py
