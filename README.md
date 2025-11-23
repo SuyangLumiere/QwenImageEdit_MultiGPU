@@ -22,9 +22,11 @@ A lightweight, clean implementation of **Qwen-Image-Edit** supporting inference 
    pip install git+https://github.com/huggingface/diffusers
    ```
 
-3. In case you encounter an error like the following:
+3. In case you encounter an error like the following:  
+   ```
    AttributeError: 'dict' object has no attribute 'to_dict'
-   **how to fix it**
+   ```
+   **How to fix it**
    ```bash
    pip install --upgrade diffusers transformers accelerate
    ```
@@ -68,7 +70,7 @@ python quick_infer.py
 
 **Advantages:**
 - Completely rewritten pipeline  
-- 512*512 generation → faster  
+- customized transformer behavior(optional)  
 - Generates results much quicker than the official pipeline  
 
 ### Option B — Official Pipeline w/ Multi‑GPU  
@@ -123,6 +125,7 @@ qwen_image/
 - Environment unified → install once at top level  
 - Training = **produce → consume**  
 - Inference = **rewritten fast pipeline** (recommended) or **official pipeline**  
+- Transformer behaviors can be easily customized through modifications to wrapped_tool.py
 - Use **512 resolution** when quickly checking training results  
 
 Enjoy your multi‑GPU Qwen‑Image‑Edit workflow ❤️

@@ -55,12 +55,10 @@ class DoubleTransformerBlock(QwenImageTransformerBlock):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        ref_states: torch.Tensor,
         encoder_hidden_states: torch.Tensor,
         encoder_hidden_states_mask: torch.Tensor,
         temb: torch.Tensor,
         image_rotary_emb: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-        ref_rotary_emb: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         joint_attention_kwargs: Optional[Dict[str, Any]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
 
@@ -72,35 +70,6 @@ class DoubleTransformerBlock(QwenImageTransformerBlock):
         # 3. Concatenates and runs joint attention
         # 4. Splits results back to separate streams
         joint_attention_kwargs = joint_attention_kwargs or {}
-
-        if ref_states is not None and ref_rotary_emb is not None:
-            ref_mod_params = self.img_mod(temb)
-            txt_mod_params = self.txt_mod(temb)
-
-            ref_mod1, _ = ref_mod_params.chunk(2, dim=-1)
-            txt_mod1, txt_mod2 = txt_mod_params.chunk(2, dim=-1)
-
-            ref_normed = self.img_norm1(ref_states)
-            ref_modulated, _ = self._modulate(ref_normed, ref_mod1)
-
-            txt_normed = self.txt_norm1(encoder_hidden_states)
-            txt_modulated, txt_gate1 = self._modulate(txt_normed, txt_mod1)
-
-            _, txt_attn_output = self.attn(
-            hidden_states=ref_modulated,  # Image stream (will be processed as "sample")
-            encoder_hidden_states=txt_modulated,  # Text stream (will be processed as "context")
-            encoder_hidden_states_mask=encoder_hidden_states_mask,
-            image_rotary_emb=ref_rotary_emb,
-            **joint_attention_kwargs,
-        )
-            encoder_hidden_states = encoder_hidden_states + txt_gate1 * txt_attn_output
-            txt_normed2 = self.txt_norm2(encoder_hidden_states)
-            txt_modulated2, txt_gate2 = self._modulate(txt_normed2, txt_mod2)
-            txt_mlp_output = self.txt_mlp(txt_modulated2)
-            encoder_hidden_states = encoder_hidden_states + txt_gate2 * txt_mlp_output
-
-            if encoder_hidden_states.dtype == torch.float16:
-                encoder_hidden_states = encoder_hidden_states.clip(-65504, 65504)
 
         # Get modulation parameters for both streams
         img_mod_params = self.img_mod(temb)  # [B, 6*dim]
@@ -189,7 +158,6 @@ class doubleStringTransformer(QwenImageTransformer2DModel):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        latent_seq_lens: int = None,
         encoder_hidden_states: torch.Tensor = None,
         encoder_hidden_states_mask: torch.Tensor = None,
         timestep: torch.LongTensor = None,
@@ -239,21 +207,8 @@ class doubleStringTransformer(QwenImageTransformer2DModel):
                     "Passing `scale` via `joint_attention_kwargs` when not using the PEFT backend is ineffective."
                 )
 
-
-        if latent_seq_lens:
-            ref_states = hidden_states[:, latent_seq_lens : ]
-            ref_states = self.img_in(ref_states)
-
-            hidden_states = self.img_in(hidden_states)
-            image_rotary_emb = self.pos_embed(img_shapes, txt_seq_lens, device=hidden_states.device)
-
-            ref_shapes = [shape[1:] for shape in img_shapes]
-            ref_rotary_emb = self.pos_embed(ref_shapes, txt_seq_lens, device=hidden_states.device)
-        else:
-            ref_states = None
-            ref_rotary_emb = None
-            hidden_states = self.img_in(hidden_states)
-            image_rotary_emb = self.pos_embed(img_shapes, txt_seq_lens, device=hidden_states.device)
+        hidden_states = self.img_in(hidden_states)
+        image_rotary_emb = self.pos_embed(img_shapes, txt_seq_lens, device=hidden_states.device)
 
         timestep = timestep.to(hidden_states.dtype)
         encoder_hidden_states = self.txt_norm(encoder_hidden_states)
@@ -274,23 +229,19 @@ class doubleStringTransformer(QwenImageTransformer2DModel):
                 encoder_hidden_states, hidden_states = self._gradient_checkpointing_func(
                     block,
                     hidden_states,
-                    ref_states,
                     encoder_hidden_states,
                     encoder_hidden_states_mask,
                     temb,
                     image_rotary_emb,
-                    ref_rotary_emb,
                 )
 
             else:
                 encoder_hidden_states, hidden_states = block(
                     hidden_states=hidden_states,
-                    ref_states = ref_states,
                     encoder_hidden_states=encoder_hidden_states,
                     encoder_hidden_states_mask=encoder_hidden_states_mask,
                     temb=temb,
                     image_rotary_emb=image_rotary_emb,
-                    ref_rotary_emb=ref_rotary_emb,
                     joint_attention_kwargs=attention_kwargs,
                 )
 
