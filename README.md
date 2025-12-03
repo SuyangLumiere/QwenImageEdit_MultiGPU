@@ -5,6 +5,13 @@
 A lightweight, clean implementation of **Qwen-Image-Edit** supporting inference + LoRA fine‑tuning on **multi‑GPU (8×V100)** setups.
 
 ---
+⚡️ New Features / Updates
+
+**Added ddp_consumer**:
+A version of the consumer that supports DistributedDataParallel (DDP).
+> **⚠️ Note:** PEFT and DeepSpeed may have limited compatibility, especially on V100 GPUs when using quantization.
+
+---
 
 ## 📦 Installation
 
@@ -109,6 +116,7 @@ qwen_image/
 │   ├── consume.sh
 │   ├── producer.py
 │   ├── pp_consumer.py
+│   ├── ddp_consumer.py
 │   ├── preprocess_dataset.py
 │   └── wrapped_tools.py
 │

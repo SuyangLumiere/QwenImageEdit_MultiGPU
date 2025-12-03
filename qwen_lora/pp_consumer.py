@@ -85,24 +85,6 @@ def parse_args():
 
     return parser.parse_args()
 
-# lora_processor: to manage all the lora modules, return dict
-def lora_processors(model):
-    processors = {}
-
-    def fn_recursive_add_processors(name: str, module: torch.nn.Module, processors):
-        if 'lora' in name:
-            processors[name] = module
-            print(name)
-        for sub_name, child in module.named_children():
-            fn_recursive_add_processors(f"{name}.{sub_name}", child, processors)
-        return processors
-
-    # traversal named_children
-    for name, module in model.named_children():
-        fn_recursive_add_processors(name, module, processors)
-
-    return processors
-
 
 # > main -----------------------------------------------------------------------------
 
