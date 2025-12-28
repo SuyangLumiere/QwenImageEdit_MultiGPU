@@ -20,16 +20,12 @@ A version of the consumer that supports DistributedDataParallel (DDP).
 - Python 3.10
 
 1. Install required packages:
+   ⚡️ NEW: Our `requirements.txt` handles the project installation and critical version upgrades in one go:
    ```bash
    pip install -r requirements.txt
    ```
 
-2. Install the latest `diffusers` from GitHub:
-   ```bash
-   pip install git+https://github.com/huggingface/diffusers
-   ```
-
-3. In case you encounter an error like the following:  
+2. In case you encounter an error like the following:  
    ```
    AttributeError: 'dict' object has no attribute 'to_dict'
    ```
@@ -38,6 +34,7 @@ A version of the consumer that supports DistributedDataParallel (DDP).
    pip install --upgrade diffusers transformers accelerate
    ```
 ---
+
 ## 🏋️ Training Workflow
 
 Training now follows a **two‑stage pipeline**:
@@ -60,6 +57,7 @@ bash consume.sh
 This launches the LoRA trainer based on the new architecture.
 
 ---
+
 ## 🚀 Inference
 <img src="img/demo.png" width="1000" />
 
@@ -109,22 +107,25 @@ This significantly reduces compute load and speeds up iteration.The whole genera
 qwen_image/
 │
 ├── README.md
+├── setup.py
 ├── requirements.txt
 │
-├── qwen_lora/
-│   ├── produce.sh
-│   ├── consume.sh
+├── QwenEdit/
+│   ├── __init__.py
+│   ├── pipe.py
+│   ├── utils.py
+│   └── data.py
+│
+├── scripts/
+│   ├── infer.py
+│   ├── quick_infer.py
 │   ├── producer.py
 │   ├── pp_consumer.py
-│   ├── ddp_consumer.py
-│   ├── preprocess_dataset.py
-│   └── wrapped_tools.py
+│   └── ddp_consumer.py
 │
-└── qwen_infer/
-    ├── quick_infer.py
-    ├── infer.py
-    ├── vanillaPipeline.py
-    └── wrapped_tools.py
+├── produce.sh
+├── consume.sh
+└── quick_infer.sh
 ```
 
 ---

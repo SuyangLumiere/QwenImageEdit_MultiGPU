@@ -2,13 +2,9 @@ import os
 from PIL import Image
 import torch
 import fire
-
+from QwenEdit import get_image
 from diffusers import QwenImageEditPlusPipeline
 
-def get_image(path):
-    img = Image.open(path).convert("RGB")
-
-    return img
 
 def main(
     img_path: str,

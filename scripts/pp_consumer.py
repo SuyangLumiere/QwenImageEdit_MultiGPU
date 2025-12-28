@@ -13,32 +13,13 @@ from diffusers.training_utils import (
     compute_density_for_timestep_sampling,
     compute_loss_weighting_for_sd3,
 )
-from preprocess_dataset import loader, path_done_well
 from peft import LoraConfig, get_peft_model
 from diffusers import QwenImageEditPlusPipeline,QwenImageTransformer2DModel
-from wrapped_tools import MultiGPUTransformer
+from QwenEdit import loader, path_done_well, fix_env_for_deepspeed, MultiGPUTransformer
 
 logger = get_logger(__name__, log_level="INFO")
 
 # > tools -----------------------------------------------------------------------------
-
-# fix env for deepspeed
-def fix_env_for_deepspeed():
-    for src, dst in [
-        ("OMPI_COMM_WORLD_LOCAL_RANK", "LOCAL_RANK"),
-        ("OMPI_COMM_WORLD_RANK", "RANK"),
-        ("OMPI_COMM_WORLD_SIZE", "WORLD_SIZE"),
-    ]:
-        if src in os.environ and dst not in os.environ:
-            os.environ[dst] = os.environ[src]
-
-    for k in [
-        "OMPI_COMM_WORLD_LOCAL_RANK",
-        "OMPI_COMM_WORLD_RANK",
-        "OMPI_COMM_WORLD_SIZE",
-        "OMPI_COMM_WORLD_NODE_RANK",
-    ]:
-        os.environ.pop(k, None)
 
 # args parser
 def parse_args():

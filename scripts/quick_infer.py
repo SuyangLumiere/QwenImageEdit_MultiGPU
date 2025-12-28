@@ -1,11 +1,9 @@
 import torch
-from accelerate import dispatch_model
-from vanillaPipeline import VanillaPipeline
 from PIL import Image
 import math
 import argparse
 from peft import PeftModel
-from wrapped_tools_iter import MultiGPUTransformer, doubleStringTransformer
+from QwenEdit import VanillaPipeline, MultiGPUTransformer, get_image
 
 # > tools -----------------------------------------------------------------------------
 
@@ -35,23 +33,6 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42, help="A seed for reproducible training.")
 
     return parser.parse_args()
-
-# load image
-def get_image(path):
-    img = Image.open(path).convert("RGB")
-    pass
-
-    return img
-
-# calculate dimension for easy divised by 32
-def calculate_dimensions(target_area, ratio):
-    width = math.sqrt(target_area * ratio)
-    height = width / ratio
-
-    width = round(width / 32) * 32
-    height = round(height / 32) * 32
-
-    return width, height
 
     
 # > main -----------------------------------------------------------------------------

@@ -1,7 +1,15 @@
-import pandas as pd
 import torch
+import math
+import pandas as pd
+from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
+
+def get_image(path):
+    img = Image.open(path).convert("RGB")
+    pass
+
+    return img
 
 def path_done_well(*paths, mk_dir=False):
 

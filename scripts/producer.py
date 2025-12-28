@@ -1,5 +1,4 @@
 import argparse
-import os
 from pathlib import Path
 import torch
 from tqdm.auto import tqdm
@@ -9,21 +8,11 @@ from diffusers import AutoencoderKLQwenImage
 from PIL import Image
 import numpy as np
 from diffusers import QwenImageEditPipeline
+from QwenEdit import calculate_dimensions
 import gc
-import math
 
 
 # > tools -----------------------------------------------------------------------------
-
-# calculate dimension for easy divised by 32
-def calculate_dimensions(target_area, ratio):
-    width = math.sqrt(target_area * ratio)
-    height = width / ratio
-
-    width = round(width / 32) * 32
-    height = round(height / 32) * 32
-
-    return width, height
 
 def get_prompt():
     instruction = "按照文字指令进行图片编辑"
