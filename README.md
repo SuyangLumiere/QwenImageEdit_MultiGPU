@@ -4,14 +4,9 @@
 
 A lightweight, clean implementation of **Qwen-Image-Edit** supporting inference + LoRA fine‑tuning on **multi‑GPU (8×V100)** setups.
 
----
-⚡️ New Features / Updates
 
-**Added ddp_consumer**:
-A version of the consumer that supports DistributedDataParallel (DDP).
-> **⚠️ Note:** PEFT and DeepSpeed may have limited compatibility, especially on V100 GPUs when using quantization.
 
----
+
 
 ## 📦 Installation
 
@@ -44,7 +39,6 @@ Training now follows a **two‑stage pipeline**:
 ### 1. Precompute embeddings  
 Run the producer script:
 ```bash
-cd qwen_lora
 bash produce.sh
 ```
 This step processes your dataset and saves precomputed embeddings for the trainer.
@@ -55,6 +49,15 @@ After produce has finished:
 bash consume.sh
 ```
 This launches the LoRA trainer based on the new architecture.
+
+<br>
+⚡️ New Features / Updates
+
+**Added ddp_consumer**:
+A version of the consumer that supports DistributedDataParallel (DDP).
+> **⚠️ Note:** PEFT and DeepSpeed may have limited compatibility, especially on V100 GPUs when using quantization.
+
+<br>
 
 ---
 
@@ -69,7 +72,6 @@ Located in `qwen_infer/vanillaPipeline.py`.
 Run:
 
 ```bash
-cd qwen_infer
 python quick_infer.py
 ```
 
@@ -82,6 +84,7 @@ python quick_infer.py
 If you still need the “official” behavior:
 
 ```bash
+cd scripts
 python infer.py
 ```
 
