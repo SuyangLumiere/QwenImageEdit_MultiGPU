@@ -8,7 +8,7 @@ from diffusers import AutoencoderKLQwenImage
 from PIL import Image
 import numpy as np
 from diffusers import QwenImageEditPipeline
-from QwenEdit import calculate_dimensions
+from QwenEdit import calculate_dimensions, list_imgs
 import gc
 
 
@@ -37,7 +37,7 @@ def main():
     parser.add_argument("--prompt_with_image", action="store_true", help="load VLM to rephrase prompt but need to be set to True")
     args = parser.parse_args()
 
-    weight_dtype = torch.float16
+    weight_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     device = torch.device("cuda:1")
 
     
@@ -69,7 +69,7 @@ def main():
     with torch.inference_mode():
 
         if args.prompt_with_image:
-            for img_name in tqdm(ctrl_dir.rglob("*.png")):
+            for img_name in tqdm(list_imgs(ctrl_dir)):
                 img = Image.open(img_name).convert('RGB')
                 calculated_width, calculated_height = calculate_dimensions(args.target_area, img.size[0] / img.size[1])
                 prompt_image = text_encoding_pipeline.image_processor.resize(img, calculated_height, calculated_width)
@@ -103,7 +103,7 @@ def main():
 
     # > image encoding
     with torch.inference_mode():
-        for img_name in tqdm(img_dir.rglob("*.png")):
+        for img_name in tqdm(list_imgs(img_dir)):
             img = Image.open(img_name).convert('RGB')
             calculated_width, calculated_height = calculate_dimensions(args.target_area, img.size[0] / img.size[1])
             img = resizer.resize(img, calculated_height, calculated_width)
@@ -122,7 +122,7 @@ def main():
     # > contorl image encoding
     if ctrl_dir is not None:
         with torch.inference_mode():
-            for img_name in tqdm(ctrl_dir.rglob("*.png")):
+            for img_name in tqdm(list_imgs(ctrl_dir)):
                 img = Image.open(img_name).convert('RGB')
                 calculated_width, calculated_height = calculate_dimensions(args.target_area, img.size[0] / img.size[1])
                 img = resizer.resize(img, calculated_height, calculated_width)

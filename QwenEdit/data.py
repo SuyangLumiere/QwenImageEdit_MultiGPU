@@ -11,6 +11,12 @@ def get_image(path):
 
     return img
 
+def list_imgs(path):
+    path = Path(path) if isinstance(path, str) else path
+    imgs = [p for p in path.rglob("*") if p.suffix.lower() in [".png", ".jpg", ".jpeg", ".bmp", ".gif"]]
+
+    return imgs
+
 def path_done_well(*paths, mk_dir=False):
 
     if not mk_dir:

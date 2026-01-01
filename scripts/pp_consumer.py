@@ -102,7 +102,7 @@ def main():
     lora_config = LoraConfig(
         r=args.rank,
         lora_alpha=2*args.rank,
-        init_lora_weights='loftq',
+        init_lora_weights='gaussian',
         target_modules=[
         "to_k", "to_q", "to_v", "to_out.0", 
         "add_q_proj", "add_k_proj", "add_v_proj", "to_add_out",],
