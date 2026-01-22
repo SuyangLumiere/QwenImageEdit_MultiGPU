@@ -1,4 +1,5 @@
 import torch
+import random
 import math
 import pandas as pd
 from PIL import Image
@@ -65,7 +66,8 @@ class PreprocessDataset(Dataset):
             return img, txt['prompt_embeds'], txt['prompt_embeds_mask'], ctrl
         except Exception as e:
             print(e)
-            return
+            new_idx = random.randint(0, len(self)-1)
+            return self.__getitem__(new_idx)
 
 
 def loader(train_batch_size, num_workers, **args):
