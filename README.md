@@ -26,7 +26,7 @@ A lightweight, clean implementation of **Qwen-Image-Edit** supporting inference 
    ```
    **How to fix it**
    ```bash
-   pip install --upgrade diffusers transformers accelerate
+   pip install --upgrade diffusers "transformers<5.0.0" accelerate
    ```
    > **⚠️ Warning:transformers has release version 5.0.0, which is incompatible to present environment,use "transformers<5.0.0" to instead**
 ---
